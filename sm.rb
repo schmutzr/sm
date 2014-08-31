@@ -39,7 +39,13 @@ class Controller
   def stop
     @services.each do |service|
       if service.stop_commands.empty? # kill processes the old way
-        service.processes.each do |pid|
+        pid_from_files = service.pidfiles.collect do |pidfile|
+          begin
+            File.read(pidfile)
+          rescue
+          end
+        end
+        (service.processes & pid_from_files).each do |pid|
           begin
             Process::kill "KILL", pid
           rescue
@@ -47,7 +53,7 @@ class Controller
         end
       else # use provided stop commands
         service.stop_commands.each do |command|
-          fork { exec command }
+          system command
         end
       end
       service.state = :stopped
@@ -60,7 +66,17 @@ class Controller
     check = nil
     @services.each do |service|
       if service.status_commands.empty? # kill processes the old way
-        if service.processes.all? do |pid|
+        if service.pidfiles.empty?
+          pids = service.processes
+        else
+          pids = service.pidfiles.collect do |pidfile|
+            begin
+              File.read(pidfile)
+            rescue
+            end
+          end
+        end
+        if pids.all? do |pid|
           begin
             Process::kill 0, pid
             check = :running 
@@ -100,7 +116,7 @@ end
 
 
 class Service
-  attr_reader :description, :name, :start_commands, :stop_commands, :status_commands
+  attr_reader :description, :name, :start_commands, :stop_commands, :status_commands, :pidfiles
   attr_accessor :state, :processes, :file
   @description = ""
   @name = ""
@@ -116,6 +132,7 @@ class Service
     @start_commands = Array.new
     @stop_commands = Array.new
     @status_commands = Array.new
+    @pidfiles = Array.new
     @processes = Array.new
     @state = :uninitialized
   end
@@ -142,6 +159,10 @@ class Service
 
   def status(command)
     @status_commands << command
+  end
+
+  def pidfile(pidfile)
+    @pidfiles << pidfile
   end
 
 end
